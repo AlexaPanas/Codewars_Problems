@@ -1,69 +1,74 @@
 import java.util.*;
-import java.util.regex.*;
 
-class ParseMolecule {
-    
-    private static Iterator<String> tokenIter;
-    private static Stack<Integer> bracketStk;
-    
-    private static final String  AT_NUM    = "[A-Z][a-z]?\\d*";
-    private static final String  OPEN_BRA  = "[{(\\[]";
-    private static final String  CLOSE_BRA = "[)}\\]]\\d*";
-    private static final Pattern TOKENIZER = Pattern.compile(String.format("%s|%s|%s", AT_NUM, OPEN_BRA, CLOSE_BRA));
-    private static final Pattern P_AT_NUM  = Pattern.compile("(?<at>[A-Z][a-z]*)(?<num>\\d*)");
-    
-    
-    public static Map<String,Integer> getAtoms(String formula) {
-        
-        List<String> tokens = new ArrayList<String>();
-        Matcher m = TOKENIZER.matcher(formula);
-        while (m.find()) tokens.add(m.group());
-        
-        if (!String.join("", tokens).equals(formula)) throw new IllegalArgumentException("Invalid formula");
-        
-        bracketStk = new Stack<Integer>();
-        tokenIter  = tokens.iterator();
-        
-        RawForm ans = getRawFormula();
-        if (!bracketStk.empty()) throw new IllegalArgumentException("Invalid formula");
-        
-        return ans;
-    }
-    
-    
-    private static RawForm getRawFormula() {
-        
-        RawForm raw = new RawForm();
-        
-        while (tokenIter.hasNext()) {
-            String tok = tokenIter.next();
-            
-            if (tok.matches(OPEN_BRA)) {
-                bracketStk.push((int) tok.charAt(0));
-                raw.concatWith(getRawFormula());
-            
-            } else if (tok.matches(AT_NUM)) {
-                Matcher m = P_AT_NUM.matcher(tok);
-                m.find();
-                raw.addAtom(m.group("at"), m.group("num").isEmpty() ? 1 : Integer.parseInt(m.group("num")));
-                
-            } else if (tok.matches(CLOSE_BRA)) {
-                if (bracketStk.empty() || (bracketStk.peek()+1 != (int) tok.charAt(0) && bracketStk.peek()+2 != (int) tok.charAt(0)))
-                    throw new IllegalArgumentException("Invalid formula");
-                bracketStk.pop();
-                
-                if (tok.length() > 1) raw.mulBy(Integer.parseInt(tok.substring(1)));
-                break;
+public class ParseMolecule {
+
+    public static Map<String, Integer> getAtoms(String formula) {
+        if (!formula.matches("[A-Za-z0-9\\[\\]\\(\\)\\{\\}]+")) {
+            throw new IllegalArgumentException("Invalid formula: " + formula);
+        }
+
+        Deque<Map<String, Integer>> stack = new ArrayDeque<>();
+        Map<String, Integer> currentMap = new HashMap<>();
+        Deque<Character> bracketStack = new ArrayDeque<>();
+        int i = 0;
+
+        while (i < formula.length()) {
+            char ch = formula.charAt(i);
+
+            if (ch == '(' || ch == '[' || ch == '{') {
+                stack.push(currentMap);
+                currentMap = new HashMap<>();
+                bracketStack.push(ch);
+                i++;
+            } else if (ch == ')' || ch == ']' || ch == '}') {
+                if (bracketStack.isEmpty() || !matches(bracketStack.pop(), ch)) {
+                    throw new IllegalArgumentException("Unmatched closing bracket at position " + i);
+                }
+                i++;
+                int[] parsed = parseNumber(formula, i);
+                int multiplier = parsed[0];
+                i = parsed[1];
+
+                Map<String, Integer> tempMap = currentMap;
+                currentMap = stack.pop();
+                for (Map.Entry<String, Integer> entry : tempMap.entrySet()) {
+                    currentMap.put(entry.getKey(), currentMap.getOrDefault(entry.getKey(), 0) + entry.getValue() * multiplier);
+                }
+            } else if (Character.isUpperCase(ch)) {
+                int start = i++;
+                while (i < formula.length() && Character.isLowerCase(formula.charAt(i))) i++;
+                String atom = formula.substring(start, i);
+
+                int[] parsed = parseNumber(formula, i);
+                int count = parsed[0];
+                i = parsed[1];
+
+                currentMap.put(atom, currentMap.getOrDefault(atom, 0) + count);
+            } else {
+                throw new IllegalArgumentException("Invalid character: " + ch);
             }
         }
-        return raw;
+
+        if (!bracketStack.isEmpty()) {
+            throw new IllegalArgumentException("Unmatched opening bracket(s) in formula: " + formula);
+        }
+
+        return currentMap;
     }
-    
-    static class RawForm extends HashMap<String,Integer> {
-        public RawForm() { super(); }
-        
-        public void addAtom(final String atom, final int n) { this.put(atom, n + this.getOrDefault(atom, 0)); }
-        public RawForm mulBy(final int n)                   { this.forEach(  (at,v) -> this.put(at, v*n) ); return this; }
-        public RawForm concatWith(RawForm other)            { other.forEach( (at,v) -> this.put(at, v + this.getOrDefault(at, 0))  ); return this; }
+
+    private static int[] parseNumber(String formula, int i) {
+        if (i >= formula.length() || !Character.isDigit(formula.charAt(i))) return new int[] {1, i};
+
+        int val = 0;
+        while (i < formula.length() && Character.isDigit(formula.charAt(i))) {
+            val = val * 10 + (formula.charAt(i++) - '0');
+        }
+        return new int[] {val, i};
+    }
+
+    private static boolean matches(char open, char close) {
+        return (open == '(' && close == ')') ||
+               (open == '[' && close == ']') ||
+               (open == '{' && close == '}');
     }
 }
